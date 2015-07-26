@@ -1,0 +1,127 @@
+## Quantified Self Movement Data Analysis
+
+### Synopsis
+
+The project aims to analyze the given data from the source [Weight Lifting Exercise Dataset](http://groupware.les.inf.puc-rio.br/har)
+to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways to predict the manner in which exercise is done.This is the "classe" variable in the training set. We can use any other variables to predict with. This report should clearly describe below key points.
+
+* “how you built your model”
+* “how you used cross validation”
+* “what you think the expected out of sample error is”
+* “why you made the choices you did”
+
+The training and test data set downloaded from the given url.
+[training data set](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+[test data set](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+
+Below list of packages required for the analysis
+```{r, echo=TRUE}
+library(ggplot2)
+library(AppliedPredictiveModeling)
+library(caret)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+```
+####**1. Data processing**
+Firstly we download the data, load the data and perform necessary transformations required for the further processing. Have commented out the download part since it can consume time.
+```{r, echo=TRUE, cache=TRUE}
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "pml-training.csv", method = "curl" )
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "pml-testing.csv", method = "curl" )
+training <- read.csv("pml-training.csv", header = T, na.strings = c("NA",""))
+testing <- read.csv("pml-testing.csv", header = T, na.strings = c("NA",""))
+dim(training)
+dim(testing)
+```
+
+For the transformation, we will eliminated all the columns where we have NA's > 60%  and also the columns which are not required for the model built. Columns 1 to 8 are irrelevant for model built
+
+```{r, echo=TRUE}
+# Function to count the no. of NA' in each column
+colNAs <- function(x) {
+    as.vector(apply(x, 2, function(x) length(which(is.na(x)))))
+}
+colcnt <- colNAs(training)
+
+# Find the columns in which count(NA's) > 60 %
+coldrops <- c()
+for (cnt in 1:length(colcnt)) {
+    if ( colcnt[cnt] > 0.6 * nrow(training)) {
+        coldrops <- c(coldrops, colnames(training[cnt]))
+    }
+}
+
+# Eliminate all the above columns and the first 8 columns from the training set
+training <- training[,!names(training) %in% coldrops]
+training <- training[,8:length(colnames(training))]
+
+# Eliminate all the above columns and the first 8 columns from the testing set
+testing  <- testing[,!names(testing) %in% coldrops]
+testing  <- testing[,8:length(colnames(testing))]
+dim(training)
+dim(testing)
+names(training)
+```
+
+
+Check for the covariates that have zero variability.
+```{r, echo=TRUE}
+nearZeroVar(training, saveMetrics = T)
+```
+
+From the above result set it is cleared that there are no variables with zero variability in the final training set.
+
+####**2. Algorithm, Model build and Validation**
+Since we are only provided with testing set that has only 20 entries. It would be recommended to validate the model built before applying the final model on the test set. In order to validate the model we partition the training data set into 2 groups `intrain` and `intest`. We will now build the model only on the `intrain` set and validate it on `intest` data set.
+
+```{r, echo=TRUE}
+train <- createDataPartition(y = training$classe, p = 0.6, list = F)
+intrain <- training[train,]
+intest <- training[-train,]
+```
+
+We decided to choose two diffrent algorithms via the caret package: classification trees (method = rpart) and random forests (method = rf) for the model build. For reproducibilty we the set the seed as shown
+
+#### Classification Trees
+We apply the method=`rpart` to the `intrain` set with preprocessing/cross validation methods.
+```{r, echo=TRUE, cache=TRUE}
+set.seed(12345)
+model1 <- train(intrain$classe ~ ., preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = intrain, method="rpart")
+print(model1)
+
+fit <- predict(model1, newdata = intest)
+print(confusionMatrix(fit, intest$classe))
+
+fancyRpartPlot(model1$finalModel)
+```
+
+From the method, it appears that the accuracy is only `49.4%` which is quite low even with preprocessing and cross validation.
+
+#### Random Forest
+We apply the method=`rf` to the `intrain` set with preprocessing/cross validation methods.
+```{r, echo=TRUE, cache=TRUE}
+set.seed(12345)
+model2 <- train(intrain$classe ~ ., preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = intrain, method="rf")
+print(model2)
+
+fit2 <- predict(model2, newdata = intest)
+print(confusionMatrix(fit2, intest$classe))
+```
+From the random forest algorithm, the accuracy is `0.994` which clearly indicates our choice of model. 
+
+#### Out of Sample Errors
+From the above 2 methods, the out of sample errors is.
+
+* With classification method `rpart`, the out of sample error is: 1 - 0.4983 = 0.5017
+* With random forest method `rf`, the out of sample error is: 1 - 0.994 = 0.006
+
+
+####**3. Conclusion**
+From the above step, it is evident that random forest is better method.We apply the random forest method to the testing data set provided as shown below.
+
+```{r, echo=TRUE}
+set.seed(12345)
+finalfit <- predict(model2, newdata = testing)
+finalfit
+```
